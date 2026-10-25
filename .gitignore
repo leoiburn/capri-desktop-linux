@@ -1,0 +1,26 @@
+# Rust build artifacts
+target/
+**/target/
+**/*.rs.bk
+
+# Package build artifacts
+*.rpm
+*.tar.gz
+rpmbuild/BUILD/
+rpmbuild/BUILDROOT/
+rpmbuild/RPMS/
+rpmbuild/SRPMS/
+rpmbuild/SOURCES/*.tar.gz
+docker-test/*.rpm
+
+# Upstream original C# repo (preserved locally if cloned)
+capri-desktop/
+test-crate/
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
