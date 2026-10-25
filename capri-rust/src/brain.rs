@@ -38,6 +38,14 @@ struct OllamaChatResponse {
     error: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct OllamaStreamChunk {
+    message: Option<ChatMessage>,
+    response: Option<String>,
+    done: Option<bool>,
+    error: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Brain {
     pub ollama_url: String,
@@ -115,6 +123,92 @@ impl Brain {
 
     pub fn ask_sync(&self, prompt: &str) -> Result<String, String> {
         self.ask(prompt)
+    }
+
+    pub fn ask_stream<F>(&self, prompt: &str, mut on_token: F) -> Result<String, String>
+    where
+        F: FnMut(&str),
+    {
+        use std::io::BufRead;
+
+        let mut messages = vec![ChatMessage {
+            role: "system".into(),
+            content: PERSONA.into(),
+        }];
+
+        {
+            let hist = self.history.lock().unwrap();
+            messages.extend(hist.clone());
+        }
+
+        messages.push(ChatMessage {
+            role: "user".into(),
+            content: prompt.to_string(),
+        });
+
+        let req_payload = OllamaChatRequest {
+            model: self.model.clone(),
+            messages,
+            stream: true,
+            options: ChatOptions {
+                num_predict: 90,
+                temperature: 0.85,
+                num_ctx: 4096,
+            },
+        };
+
+        let api_endpoint = format!("{}/api/chat", self.ollama_url.trim_end_matches('/'));
+        let resp = ureq::post(&api_endpoint)
+            .timeout(std::time::Duration::from_secs(180))
+            .send_json(&req_payload)
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        let reader = std::io::BufReader::new(resp.into_reader());
+        let mut full_text = String::new();
+
+        for line_res in reader.lines() {
+            let line = line_res.map_err(|e| format!("Stream read error: {}", e))?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if let Ok(chunk) = serde_json::from_str::<OllamaStreamChunk>(trimmed) {
+                if let Some(err) = chunk.error {
+                    return Err(err);
+                }
+                if let Some(msg) = chunk.message {
+                    if !msg.content.is_empty() {
+                        full_text.push_str(&msg.content);
+                        on_token(&msg.content);
+                    }
+                } else if let Some(resp_tok) = chunk.response {
+                    if !resp_tok.is_empty() {
+                        full_text.push_str(&resp_tok);
+                        on_token(&resp_tok);
+                    }
+                }
+                if chunk.done.unwrap_or(false) {
+                    break;
+                }
+            }
+        }
+
+        let cleaned = clean_text(&full_text);
+        let mut hist = self.history.lock().unwrap();
+        hist.push(ChatMessage {
+            role: "user".into(),
+            content: prompt.to_string(),
+        });
+        hist.push(ChatMessage {
+            role: "assistant".into(),
+            content: cleaned.clone(),
+        });
+        if hist.len() > 12 {
+            hist.drain(0..2);
+        }
+
+        Ok(cleaned)
     }
 
     pub fn clear_history(&self) {

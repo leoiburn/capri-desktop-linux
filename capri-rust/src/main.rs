@@ -7,6 +7,7 @@ mod tracker;
 
 use app::App;
 use brain::{Brain, DEFAULT_MODEL, DEFAULT_OLLAMA_URL};
+use sprites::CapriTheme;
 use std::env;
 use std::sync::mpsc::channel;
 use std::thread;
@@ -19,6 +20,8 @@ fn print_help() {
     println!("  --model <NAME>        Ollama model to use (default: capri)");
     println!("  --ollama-url <URL>    Ollama server URL (default: http://127.0.0.1:11434)");
     println!("  --scale <FACTOR>      Initial mascot scale factor (e.g. 1.0, 1.5, 2.0; default: 1.0)");
+    println!("  --theme <pixel|hd>    Mascot art style (pixel: retro sprite, hd: illustrated anime; default: pixel)");
+    println!("  --voice               Enable TTS speech synthesis using espeak-ng / spd-say");
     println!("  --test-chat <PROMPT>  Headless test: send a chat prompt to Ollama, print response, exit");
     println!("  --smoke-test          Headless verification of sprites, fonts, and Ollama connection");
     println!("  -h, --help            Print help information");
@@ -30,6 +33,8 @@ fn main() {
     let mut model = DEFAULT_MODEL.to_string();
     let mut ollama_url = DEFAULT_OLLAMA_URL.to_string();
     let mut scale: f32 = 1.0;
+    let mut theme = CapriTheme::Pixel;
+    let mut voice_enabled = false;
     let mut test_chat_prompt: Option<String> = None;
     let mut smoke_test = false;
 
@@ -56,7 +61,20 @@ fn main() {
                     i += 1;
                 }
             }
-
+            "--theme" => {
+                if i + 1 < args.len() {
+                    let t = args[i + 1].to_lowercase();
+                    if t == "hd" || t == "anime" || t == "illustrated" {
+                        theme = CapriTheme::Hd;
+                    } else {
+                        theme = CapriTheme::Pixel;
+                    }
+                    i += 1;
+                }
+            }
+            "--voice" => {
+                voice_enabled = true;
+            }
             "--test-chat" => {
                 if i + 1 < args.len() {
                     test_chat_prompt = Some(args[i + 1].clone());
@@ -87,8 +105,12 @@ fn main() {
         match sprites {
             Ok(s) => {
                 println!(
-                    "   [PASS] Loaded all sprites (idle frames: {}, dangle frames: {})",
-                    s.idle.count, s.dangle.count
+                    "   [PASS] Loaded Pixel Sprites (idle frames: {}, dangle frames: {}, sleep frames: {})",
+                    s.idle.count, s.dangle.count, s.sleep.count
+                );
+                println!(
+                    "   [PASS] Loaded HD Illustrated Art (idle: {} frames, blink: {} frame, happy: {} frame, sleep: {} frames)",
+                    s.hd_idle.count, s.hd_blink.count, s.hd_happy.count, s.hd_sleeping.count
                 );
             }
             Err(e) => {
@@ -152,11 +174,11 @@ fn main() {
     let brain_repl = brain.clone();
     let tx_m = tx_mascot.clone();
     let repl_thread = thread::spawn(move || {
-        terminal::run_terminal_repl(brain_repl, tx_m, rx_term);
+        terminal::run_terminal_repl(brain_repl, tx_m, rx_term, voice_enabled);
     });
 
     // Run Mascot GUI window on the main thread
-    match App::new(scale) {
+    match App::new(scale, theme) {
         Ok(mut app) => {
             if let Err(e) = app.run(rx_mascot, tx_term) {
                 eprintln!("Runtime error in mascot window: {}", e);

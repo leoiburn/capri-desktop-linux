@@ -48,6 +48,68 @@ impl Clip {
         })
     }
 
+    pub fn from_single_frame(name: &'static str, bytes: &[u8]) -> Result<Self, String> {
+        let img = image::load_from_memory(bytes)
+            .map_err(|e| format!("Failed to decode sprite {}: {}", name, e))?;
+        let (width, height) = img.dimensions();
+        let mut frame_pixels = Vec::with_capacity((width * height) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = img.get_pixel(x, y);
+                let r = pixel[0] as u32;
+                let g = pixel[1] as u32;
+                let b = pixel[2] as u32;
+                let a = pixel[3] as u32;
+                let argb = (a << 24) | (r << 16) | (g << 8) | b;
+                frame_pixels.push(argb);
+            }
+        }
+        Ok(Clip {
+            name,
+            count: 1,
+            fps: 1.0,
+            width: width as usize,
+            height: height as usize,
+            frames: vec![frame_pixels],
+        })
+    }
+
+    pub fn from_multi_png(name: &'static str, frames_bytes: &[&[u8]], fps: f64) -> Result<Self, String> {
+        let mut frames = Vec::with_capacity(frames_bytes.len());
+        let mut w_out = 0;
+        let mut h_out = 0;
+        for (i, b) in frames_bytes.iter().enumerate() {
+            let img = image::load_from_memory(b)
+                .map_err(|e| format!("Failed to decode frame {} of {}: {}", i, name, e))?;
+            let (width, height) = img.dimensions();
+            if i == 0 {
+                w_out = width as usize;
+                h_out = height as usize;
+            }
+            let mut frame_pixels = Vec::with_capacity((width * height) as usize);
+            for y in 0..height {
+                for x in 0..width {
+                    let pixel = img.get_pixel(x, y);
+                    let r = pixel[0] as u32;
+                    let g = pixel[1] as u32;
+                    let b = pixel[2] as u32;
+                    let a = pixel[3] as u32;
+                    let argb = (a << 24) | (r << 16) | (g << 8) | b;
+                    frame_pixels.push(argb);
+                }
+            }
+            frames.push(frame_pixels);
+        }
+        Ok(Clip {
+            name,
+            count: frames.len(),
+            fps,
+            width: w_out,
+            height: h_out,
+            frames,
+        })
+    }
+
     pub fn get_frame(&self, time_sec: f64) -> &Vec<u32> {
         if self.count == 0 {
             panic!("Clip {} has 0 frames", self.name);
@@ -57,6 +119,12 @@ impl Clip {
         let index = ((t * self.fps) as usize).min(self.count - 1);
         &self.frames[index]
     }
+}
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum CapriTheme {
+    Pixel,
+    Hd,
 }
 
 #[allow(dead_code)]
@@ -73,6 +141,12 @@ pub struct SpriteCollection {
     pub perch: Clip,
     pub perch_blink: Clip,
     pub perch_glitch: Clip,
+
+    // HD character art from Capri-Capricorn-The-Desktop-Construct
+    pub hd_idle: Clip,
+    pub hd_blink: Clip,
+    pub hd_happy: Clip,
+    pub hd_sleeping: Clip,
 }
 
 impl SpriteCollection {
@@ -150,6 +224,37 @@ impl SpriteCollection {
             15.0,
         )?;
 
+        // HD Character clips (Lanczos filtered 512x384 frames)
+        let hd_idle = Clip::from_multi_png(
+            "hd_idle",
+            &[
+                include_bytes!("../assets/character/capri_idle1.png"),
+                include_bytes!("../assets/character/capri_idle2.png"),
+                include_bytes!("../assets/character/capri_idle3.png"),
+            ],
+            6.67, // 150ms per frame
+        )?;
+
+        let hd_blink = Clip::from_single_frame(
+            "hd_blink",
+            include_bytes!("../assets/character/capri_blink.png"),
+        )?;
+
+        let hd_happy = Clip::from_single_frame(
+            "hd_happy",
+            include_bytes!("../assets/character/capri_happy.png"),
+        )?;
+
+        let hd_sleeping = Clip::from_multi_png(
+            "hd_sleeping",
+            &[
+                include_bytes!("../assets/character/capri_sleeping0.png"),
+                include_bytes!("../assets/character/capri_sleeping1.png"),
+                include_bytes!("../assets/character/capri_sleeping2.png"),
+            ],
+            3.33, // 300ms per frame
+        )?;
+
         Ok(SpriteCollection {
             idle,
             blink,
@@ -163,6 +268,10 @@ impl SpriteCollection {
             perch,
             perch_blink,
             perch_glitch,
+            hd_idle,
+            hd_blink,
+            hd_happy,
+            hd_sleeping,
         })
     }
 }
