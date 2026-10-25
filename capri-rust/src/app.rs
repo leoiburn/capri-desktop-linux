@@ -59,7 +59,7 @@ impl App {
             borderless: true,
             title: false,
             resize: true,
-            scale_mode: ScaleMode::AspectRatioStretch,
+            scale_mode: ScaleMode::Stretch,
             topmost: true,
             transparency: true,
             ..WindowOptions::default()
